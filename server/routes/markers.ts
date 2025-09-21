@@ -8,7 +8,7 @@ import {
   WaterTestMarker, 
   ManualMarker,
   MarkerType
-} from "@shared/types/map-markers";
+} from "../../shared/types/map-markers";
 
 // Validation schemas
 const CoordinatesSchema = z.object({

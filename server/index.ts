@@ -14,6 +14,7 @@ import {
   deleteMarker,
   getMarkersInBounds
 } from "./routes/markers";
+import hotspotsRouter from "./routes/hotspots";
 
 export function createServer() {
   const app = express();
@@ -48,6 +49,9 @@ export function createServer() {
   app.post("/api/markers/manual", createManualMarker);
   app.put("/api/markers/:id", updateMarker);
   app.delete("/api/markers/:id", deleteMarker);
+
+  // Hotspots API
+  app.use("/api/hotspots", hotspotsRouter);
 
   return app;
 }

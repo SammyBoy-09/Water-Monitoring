@@ -3,6 +3,9 @@ import L from 'leaflet';
 import 'leaflet.markercluster';
 import './MapStyles.css';
 import { MapMarker, SymptomReportMarker, WaterTestMarker, ManualMarker } from '@shared/types/map-markers';
+import { detectHotspots, Hotspot } from '@shared/utils/hotspot-detection';
+import { notificationManager } from '@shared/utils/notification-system';
+import NotificationPanel from '@/components/notifications/NotificationPanel';
 
 // Fix for default markers in Leaflet with Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -40,6 +43,9 @@ const AnalyticsMap: React.FC<AnalyticsMapProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isManualPlacementMode, setIsManualPlacementMode] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'symptom_report' | 'water_test' | 'manual_marker'>('all');
+  const [hotspots, setHotspots] = useState<Hotspot[]>([]);
+  const [showHotspots, setShowHotspots] = useState(true);
+  const hotspotMarkersRef = useRef<L.LayerGroup | null>(null);
 
   // Initialize map
   useEffect(() => {
@@ -175,7 +181,11 @@ const AnalyticsMap: React.FC<AnalyticsMapProps> = ({
       const data = await response.json();
       
       if (data.success) {
-        setMarkers(data.markers || []);
+        const fetchedMarkers = data.markers || [];
+        setMarkers(fetchedMarkers);
+        
+        // Detect hotspots whenever markers are updated
+        detectAndDisplayHotspots(fetchedMarkers);
       } else {
         console.error('Failed to fetch markers:', data.error);
       }
@@ -281,6 +291,162 @@ const AnalyticsMap: React.FC<AnalyticsMapProps> = ({
     return content;
   }, []);
 
+  // Hotspot detection and display functions
+  const detectAndDisplayHotspots = useCallback((currentMarkers: MapMarker[]) => {
+    // Detect hotspots using the detection algorithm
+    const detectedHotspots = detectHotspots(currentMarkers, {
+      minMarkersForHotspot: 3,
+      radiusMeters: 1000, // 1km radius
+      severityThresholds: {
+        medium: 3,
+        high: 5,
+        critical: 8
+      }
+    });
+
+    // Update hotspots state
+    setHotspots(detectedHotspots);
+
+    // Send notifications for new critical hotspots
+    detectedHotspots.forEach(hotspot => {
+      if (hotspot.severity === 'critical' || hotspot.severity === 'high') {
+        // Check if we've already notified about this hotspot
+        const existingNotifications = notificationManager.getNotifications();
+        const alreadyNotified = existingNotifications.some(
+          notification => 
+            Math.abs(notification.location.lat - hotspot.center.lat) < 0.001 &&
+            Math.abs(notification.location.lng - hotspot.center.lng) < 0.001 &&
+            notification.severity === hotspot.severity
+        );
+
+        if (!alreadyNotified) {
+          notificationManager.createHotspotNotification(hotspot);
+        }
+      }
+    });
+
+    // Display hotspots on map
+    displayHotspotsOnMap(detectedHotspots);
+  }, []);
+
+  const displayHotspotsOnMap = useCallback((hotspotsToDisplay: Hotspot[]) => {
+    if (!mapRef.current) return;
+
+    // Clear existing hotspot markers
+    if (hotspotMarkersRef.current) {
+      mapRef.current.removeLayer(hotspotMarkersRef.current);
+    }
+
+    if (!showHotspots || hotspotsToDisplay.length === 0) return;
+
+    // Create new hotspot layer group
+    hotspotMarkersRef.current = L.layerGroup();
+
+    hotspotsToDisplay.forEach(hotspot => {
+      // Create hotspot circle
+      const hotspotCircle = L.circle([hotspot.center.lat, hotspot.center.lng], {
+        radius: hotspot.radius,
+        fillColor: getHotspotColor(hotspot.severity),
+        color: getHotspotColor(hotspot.severity),
+        weight: 3,
+        opacity: 0.8,
+        fillOpacity: 0.2,
+        className: `hotspot-${hotspot.severity}`
+      });
+
+      // Create pulsing marker for hotspot center
+      const hotspotMarker = L.marker([hotspot.center.lat, hotspot.center.lng], {
+        icon: L.divIcon({
+          className: `hotspot-marker hotspot-${hotspot.severity}`,
+          html: `
+            <div class="hotspot-pulse">
+              <div class="hotspot-core">
+                <span class="hotspot-icon">${getHotspotIcon(hotspot.severity)}</span>
+                <span class="hotspot-count">${hotspot.markerCount}</span>
+              </div>
+            </div>
+          `,
+          iconSize: [40, 40],
+          iconAnchor: [20, 20]
+        })
+      });
+
+      // Create popup for hotspot
+      const popupContent = `
+        <div class="hotspot-popup">
+          <h3>${hotspot.severity.toUpperCase()} HOTSPOT</h3>
+          <p><strong>Markers:</strong> ${hotspot.markerCount}</p>
+          <p><strong>Radius:</strong> ${Math.round(hotspot.radius)}m</p>
+          <p><strong>Type:</strong> ${hotspot.type.replace('_', ' ')}</p>
+          <p><strong>Detected:</strong> ${new Date(hotspot.detectedAt).toLocaleString()}</p>
+          <div class="hotspot-actions">
+            <button onclick="window.acknowledgeHotspot('${hotspot.id}')" class="btn btn-primary">
+              Acknowledge
+            </button>
+            <button onclick="window.viewHotspotDetails('${hotspot.id}')" class="btn btn-secondary">
+              View Details
+            </button>
+          </div>
+        </div>
+      `;
+
+      hotspotMarker.bindPopup(popupContent);
+
+      // Add to layer group
+      hotspotMarkersRef.current?.addLayer(hotspotCircle);
+      hotspotMarkersRef.current?.addLayer(hotspotMarker);
+    });
+
+    // Add to map
+    hotspotMarkersRef.current.addTo(mapRef.current);
+  }, [showHotspots]);
+
+  const getHotspotColor = (severity: string): string => {
+    switch (severity) {
+      case 'low': return '#10b981';
+      case 'medium': return '#f59e0b';
+      case 'high': return '#f97316';
+      case 'critical': return '#dc2626';
+      default: return '#6b7280';
+    }
+  };
+
+  const getHotspotIcon = (severity: string): string => {
+    switch (severity) {
+      case 'low': return '🟡';
+      case 'medium': return '🟠';
+      case 'high': return '🔴';
+      case 'critical': return '🚨';
+      default: return '⚠️';
+    }
+  };
+
+  const handleNavigateToHotspot = useCallback((location: { lat: number; lng: number }, hotspotId: string) => {
+    if (!mapRef.current) return;
+    
+    // Pan to hotspot location
+    mapRef.current.setView([location.lat, location.lng], 15, {
+      animate: true,
+      duration: 1.0
+    });
+
+    // Find and open the hotspot popup
+    setTimeout(() => {
+      if (hotspotMarkersRef.current) {
+        hotspotMarkersRef.current.eachLayer((layer: any) => {
+          if (layer instanceof L.Marker && layer.getLatLng().equals([location.lat, location.lng])) {
+            layer.openPopup();
+          }
+        });
+      }
+    }, 1000);
+  }, []);
+
+  // Update hotspot display when showHotspots toggle changes
+  useEffect(() => {
+    displayHotspotsOnMap(hotspots);
+  }, [showHotspots, hotspots, displayHotspotsOnMap]);
+
   // Update markers on map
   useEffect(() => {
     if (!mapRef.current || !markersClusterRef.current) return;
@@ -325,11 +491,40 @@ const AnalyticsMap: React.FC<AnalyticsMapProps> = ({
       }
     };
 
+    // Hotspot action functions
+    (window as any).acknowledgeHotspot = async (hotspotId: string) => {
+      try {
+        const response = await fetch(`/api/hotspots/${hotspotId}/acknowledge`, { method: 'PATCH' });
+        const data = await response.json();
+        
+        if (response.ok) {
+          alert('Hotspot acknowledged successfully');
+          // Refresh hotspots
+          fetchMarkers();
+        } else {
+          alert('Failed to acknowledge hotspot');
+        }
+      } catch (error) {
+        console.error('Error acknowledging hotspot:', error);
+        alert('Error acknowledging hotspot');
+      }
+    };
+
+    (window as any).viewHotspotDetails = (hotspotId: string) => {
+      // Find the hotspot in current hotspots
+      const hotspot = hotspots.find(h => h.id === hotspotId);
+      if (hotspot) {
+        alert(`Hotspot Details:\n\nID: ${hotspot.id}\nSeverity: ${hotspot.severity}\nMarkers: ${hotspot.markerCount}\nRadius: ${Math.round(hotspot.radius)}m\nType: ${hotspot.type}\nDetected: ${new Date(hotspot.detectedAt).toLocaleString()}`);
+      }
+    };
+
     return () => {
       delete (window as any).editMarker;
       delete (window as any).deleteMarker;
+      delete (window as any).acknowledgeHotspot;
+      delete (window as any).viewHotspotDetails;
     };
-  }, [fetchMarkers]);
+  }, [fetchMarkers, hotspots]);
 
   return (
     <div className="map-container" style={{ height }}>
@@ -365,6 +560,14 @@ const AnalyticsMap: React.FC<AnalyticsMapProps> = ({
         >
           {isLoading ? 'Loading...' : 'Refresh'}
         </button>
+
+        {/* Hotspot Toggle */}
+        <button
+          className={`map-control-button ${showHotspots ? 'active' : ''}`}
+          onClick={() => setShowHotspots(!showHotspots)}
+        >
+          🚨 Hotspots ({hotspots.length})
+        </button>
       </div>
 
       {/* Map Container */}
@@ -380,6 +583,9 @@ const AnalyticsMap: React.FC<AnalyticsMapProps> = ({
           Loading markers...
         </div>
       )}
+
+      {/* Notification Panel */}
+      <NotificationPanel onNavigateToHotspot={handleNavigateToHotspot} />
     </div>
   );
 };

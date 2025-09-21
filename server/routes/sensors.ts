@@ -20,7 +20,7 @@ export const handleSensors: RequestHandler = async (_req, res) => {
   });
 };
 
-export const sendData: RequestHandler = async (_req, res) => {
+export const sendData: RequestHandler = async (req, res) => {
   // TODO: Integrate with ThingsBoard REST API if device and keys are configured.
   // The app is also embedding the public dashboard URL on the frontend for visual parity.
   state = {

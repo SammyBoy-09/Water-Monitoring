@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-result { margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Water Monitoring API Test</h1>
+    <button onclick="testPing()">Test Ping</button>
+    <button onclick="testGetMarkers()">Test Get Markers</button>
+    <button onclick="testCreateSymptomReport()">Test Create Symptom Report</button>
+    <button onclick="testCreateWaterTest()">Test Create Water Test</button>
+    <button onclick="testCreateManualMarker()">Test Create Manual Marker</button>
+    <button onclick="clearResults()">Clear Results</button>
+    
+    <div id="results"></div>
+
+    <script>
+        function addResult(title, data, isError = false) {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${isError ? 'error' : 'success'}`;
+            resultDiv.innerHTML = `
+                <h3>${title}</h3>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function testPing() {
+            try {
+                const response = await fetch('/api/ping');
+                const data = await response.json();
+                addResult('Ping Test', data);
+            } catch (error) {
+                addResult('Ping Test Error', error.message, true);
+            }
+        }
+
+        async function testGetMarkers() {
+            try {
+                const response = await fetch('/api/markers');
+                const data = await response.json();
+                addResult('Get Markers Test', data);
+            } catch (error) {
+                addResult('Get Markers Test Error', error.message, true);
+            }
+        }
+
+        async function testCreateSymptomReport() {
+            try {
+                const symptomReport = {
+                    date: '2025-09-21',
+                    location: {
+                        address: 'Test Location, Test City',
+                        coordinates: { lat: 20.5937, lng: 78.9629 }
+                    },
+                    symptoms: ['Diarrhea', 'Fever'],
+                    affectedCount: 3,
+                    notes: 'Test report from browser test',
+                    severity: 'medium',
+                    reportedBy: 'test-user'
+                };
+
+                const response = await fetch('/api/markers/symptom-report', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(symptomReport)
+                });
+                const data = await response.json();
+                addResult('Create Symptom Report Test', data);
+            } catch (error) {
+                addResult('Create Symptom Report Test Error', error.message, true);
+            }
+        }
+
+        async function testCreateWaterTest() {
+            try {
+                const waterTest = {
+                    location: {
+                        address: 'Water Source A, Test District',
+                        coordinates: { lat: 20.6, lng: 79.0 }
+                    },
+                    testResults: {
+                        pH: 6.5,
+                        turbidity: 15,
+                        chlorine: 0.2,
+                        bacteria: 'present'
+                    },
+                    kitUsed: 'Basic Water Test Kit',
+                    riskLevel: 'high',
+                    recommendations: ['Boil water before use', 'Install filtration'],
+                    testedBy: 'test-agent'
+                };
+
+                const response = await fetch('/api/markers/water-test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(waterTest)
+                });
+                const data = await response.json();
+                addResult('Create Water Test Test', data);
+            } catch (error) {
+                addResult('Create Water Test Test Error', error.message, true);
+            }
+        }
+
+        async function testCreateManualMarker() {
+            try {
+                const manualMarker = {
+                    title: 'Test Intervention Site',
+                    description: 'Browser test manual marker',
+                    location: {
+                        address: 'Intervention Site, Test Area',
+                        coordinates: { lat: 20.55, lng: 78.95 }
+                    },
+                    markerType: 'intervention',
+                    priority: 'high',
+                    status: 'active',
+                    createdBy: 'test-admin'
+                };
+
+                const response = await fetch('/api/markers/manual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(manualMarker)
+                });
+                const data = await response.json();
+                addResult('Create Manual Marker Test', data);
+            } catch (error) {
+                addResult('Create Manual Marker Test Error', error.message, true);
+            }
+        }
+
+        // Auto-run ping test on page load
+        window.onload = function() {
+            testPing();
+        };
+    </script>
+</body>
+</html>

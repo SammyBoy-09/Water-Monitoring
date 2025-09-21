@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import LocationPicker from "@/components/map/LocationPicker";
+import { CreateSymptomReportRequest, SeverityLevel } from "@shared/types/map-markers";
 
 const symptomsOptions = [
   "Diarrhea",
@@ -14,10 +16,12 @@ export default function CommunityReport() {
   const [date, setDate] = useState<string>(
     new Date().toISOString().slice(0, 10),
   );
-  const [location, setLocation] = useState("");
+  const [locationText, setLocationText] = useState("");
+  const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number; address: string } | null>(null);
   const [symptoms, setSymptoms] = useState<string[]>([]);
   const [affectedCount, setAffectedCount] = useState<number>(0);
   const [notes, setNotes] = useState("");
+  const [severity, setSeverity] = useState<SeverityLevel>("medium");
   const [status, setStatus] = useState<string>("");
 
   const toggleSymptom = (symptom: string) => {
@@ -30,25 +34,67 @@ export default function CommunityReport() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!selectedLocation && !locationText) {
+      setStatus("Please select a location on the map or enter a location manually");
+      return;
+    }
+
     setStatus("Submitting...");
     try {
-      const res = await fetch("/api/reports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          date,
-          location,
-          symptoms,
-          affectedCount,
-          notes,
+      // Create symptom report with location data
+      const symptomReportData: CreateSymptomReportRequest = {
+        date,
+        location: selectedLocation ? {
+          address: selectedLocation.address || locationText,
+          coordinates: {
+            lat: selectedLocation.lat,
+            lng: selectedLocation.lng
+          }
+        } : {
+          address: locationText,
+          coordinates: { lat: 0, lng: 0 } // Default coordinates if no map location
+        },
+        symptoms,
+        affectedCount,
+        notes: notes || "",
+        severity,
+        reportedBy: "community_user" // In real app, get from auth context
+      };
+
+      // Submit to both endpoints - old reports API and new markers API
+      const [reportsRes, markersRes] = await Promise.all([
+        fetch("/api/reports", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            date,
+            location: selectedLocation?.address || locationText,
+            symptoms,
+            affectedCount,
+            notes,
+          }),
         }),
-      });
-      if (!res.ok) throw new Error("Failed to submit");
-      setStatus("Submitted successfully");
-      setLocation("");
+        fetch("/api/markers/symptom-report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(symptomReportData),
+        })
+      ]);
+
+      if (!reportsRes.ok || !markersRes.ok) {
+        throw new Error("Failed to submit report");
+      }
+
+      setStatus("Report submitted successfully! It will appear on the analytics map.");
+      
+      // Reset form
+      setLocationText("");
+      setSelectedLocation(null);
       setSymptoms([]);
       setAffectedCount(0);
       setNotes("");
+      setSeverity("medium");
     } catch (err: any) {
       setStatus(err.message || "Submission failed");
     }
@@ -75,16 +121,23 @@ export default function CommunityReport() {
             required
           />
         </div>
+        {/* Location Selection */}
         <div className="grid gap-2">
-          <label className="text-sm font-medium">Location</label>
-          <input
-            type="text"
-            placeholder="Village / Ward / Coordinates"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            className="w-full rounded-md border bg-background px-3 py-2"
-            required
-          />
+          <label className="text-sm font-medium">Location *</label>
+          <div className="space-y-3">
+            <input
+              type="text"
+              placeholder="Enter location manually (or use map below)"
+              value={locationText}
+              onChange={(e) => setLocationText(e.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-2"
+            />
+            <LocationPicker
+              selectedLocation={selectedLocation}
+              onLocationSelect={setSelectedLocation}
+              onClear={() => setSelectedLocation(null)}
+            />
+          </div>
         </div>
         <div className="grid gap-2">
           <label className="text-sm font-medium">Symptoms</label>
@@ -120,6 +173,20 @@ export default function CommunityReport() {
             className="w-full rounded-md border bg-background px-3 py-2"
             required
           />
+        </div>
+
+        <div className="grid gap-2">
+          <label className="text-sm font-medium">Severity Level</label>
+          <select
+            value={severity}
+            onChange={(e) => setSeverity(e.target.value as SeverityLevel)}
+            className="w-full rounded-md border bg-background px-3 py-2"
+          >
+            <option value="low">Low - Minor symptoms, few affected</option>
+            <option value="medium">Medium - Moderate symptoms</option>
+            <option value="high">High - Severe symptoms, many affected</option>
+            <option value="critical">Critical - Emergency situation</option>
+          </select>
         </div>
         <div className="grid gap-2">
           <label className="text-sm font-medium">Notes</label>

@@ -4,6 +4,16 @@ import cors from "cors";
 import { handleDemo } from "./routes/demo";
 import { createReport, listReports } from "./routes/reports";
 import { handleSensors, sendData } from "./routes/sensors";
+import { 
+  getAllMarkers, 
+  getMarkersByType, 
+  createSymptomReport, 
+  createWaterTest, 
+  createManualMarker,
+  updateMarker,
+  deleteMarker,
+  getMarkersInBounds
+} from "./routes/markers";
 
 export function createServer() {
   const app = express();
@@ -28,6 +38,16 @@ export function createServer() {
   // Sensors API (simulated with optional TB integration)
   app.get("/api/sensors", handleSensors);
   app.post("/api/sensors", sendData);
+
+  // Map Markers API
+  app.get("/api/markers", getAllMarkers);
+  app.get("/api/markers/type/:type", getMarkersByType);
+  app.get("/api/markers/bounds", getMarkersInBounds);
+  app.post("/api/markers/symptom-report", createSymptomReport);
+  app.post("/api/markers/water-test", createWaterTest);
+  app.post("/api/markers/manual", createManualMarker);
+  app.put("/api/markers/:id", updateMarker);
+  app.delete("/api/markers/:id", deleteMarker);
 
   return app;
 }

@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { KitTestResult } from '@shared/types/testing-kits';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertTriangle, CheckCircle, XCircle, Info, RotateCcw } from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle, Info, RotateCcw, MapPin, Save } from 'lucide-react';
+import LocationPicker from '@/components/map/LocationPicker';
+import { CreateWaterTestRequest, SeverityLevel } from '@shared/types/map-markers';
 
 interface ResultsDisplayProps {
   results: KitTestResult;
@@ -13,6 +16,10 @@ interface ResultsDisplayProps {
 }
 
 export default function ResultsDisplay({ results, onRunNewTest, onBackToKitSelection }: ResultsDisplayProps) {
+  const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number; address: string } | null>(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string>('');
   const getRiskColor = (risk: 'low' | 'medium' | 'high') => {
     switch (risk) {
       case 'low': return 'text-green-600 bg-green-50 border-green-200';
@@ -39,6 +46,84 @@ export default function ResultsDisplay({ results, onRunNewTest, onBackToKitSelec
 
   const criticalResults = results.results.filter(r => r.isInCriticalRange);
   const confidencePercentage = Math.round(results.confidence * 100);
+
+  // Convert test results to risk level for markers
+  const getRiskLevelForMarker = (overallRisk: 'low' | 'medium' | 'high'): SeverityLevel => {
+    switch (overallRisk) {
+      case 'low': return 'low';
+      case 'medium': return 'medium';
+      case 'high': return criticalResults.length > 0 ? 'critical' : 'high';
+    }
+  };
+
+  const saveToMap = async () => {
+    if (!selectedLocation) {
+      setSaveStatus('Please select a location first');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveStatus('Saving...');
+
+    try {
+      // Convert test results to a simple format
+      const testResultsData: Record<string, any> = {};
+      results.results.forEach(result => {
+        testResultsData[result.parameter.name] = result.value;
+      });
+
+      // Generate recommendations based on critical results
+      const recommendations: string[] = [];
+      if (criticalResults.length > 0) {
+        recommendations.push('Water treatment required before consumption');
+        recommendations.push('Consider boiling water for at least 1 minute');
+        criticalResults.forEach(result => {
+          recommendations.push(`Address ${result.parameter.name} levels - see ${result.parameter.pathogen_risk}`);
+        });
+      } else if (results.overallRisk === 'medium') {
+        recommendations.push('Monitor water quality regularly');
+        recommendations.push('Consider water filtration system');
+      } else {
+        recommendations.push('Water quality appears acceptable');
+        recommendations.push('Continue regular monitoring');
+      }
+
+      const waterTestData: CreateWaterTestRequest = {
+        location: {
+          address: selectedLocation.address,
+          coordinates: {
+            lat: selectedLocation.lat,
+            lng: selectedLocation.lng
+          }
+        },
+        testResults: testResultsData,
+        kitUsed: results.kit.kit,
+        riskLevel: getRiskLevelForMarker(results.overallRisk),
+        recommendations,
+        testedBy: 'field_agent' // In real app, get from auth context
+      };
+
+      const response = await fetch('/api/markers/water-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(waterTestData),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setSaveStatus('Successfully saved to map! Results will appear in analytics.');
+        setShowLocationPicker(false);
+      } else {
+        setSaveStatus('Failed to save: ' + result.error);
+      }
+    } catch (error) {
+      console.error('Error saving to map:', error);
+      setSaveStatus('Error saving results to map');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -227,6 +312,70 @@ export default function ResultsDisplay({ results, onRunNewTest, onBackToKitSelec
               for definitive water quality assessment, especially for drinking water supplies.
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Save to Map Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MapPin className="h-5 w-5" />
+            Save Results to Analytics Map
+          </CardTitle>
+          <CardDescription>
+            Add this test result to the water quality monitoring map for tracking and analysis.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!showLocationPicker ? (
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div>
+                <p className="font-medium">Share your test results</p>
+                <p className="text-sm text-gray-600">
+                  Help build a comprehensive water quality database by saving your results to the map.
+                </p>
+              </div>
+              <Button onClick={() => setShowLocationPicker(true)}>
+                <MapPin className="h-4 w-4 mr-2" />
+                Add to Map
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <LocationPicker
+                selectedLocation={selectedLocation}
+                onLocationSelect={setSelectedLocation}
+                onClear={() => setSelectedLocation(null)}
+              />
+              
+              {saveStatus && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>{saveStatus}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex items-center gap-2">
+                <Button 
+                  onClick={saveToMap} 
+                  disabled={!selectedLocation || isSaving}
+                  className="flex items-center gap-2"
+                >
+                  <Save className="h-4 w-4" />
+                  {isSaving ? 'Saving...' : 'Save to Map'}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowLocationPicker(false);
+                    setSaveStatus('');
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

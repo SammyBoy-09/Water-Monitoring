@@ -15,6 +15,7 @@ import {
   getMarkersInBounds
 } from "./routes/markers";
 import hotspotsRouter from "./routes/hotspots";
+import educationRouter from "./routes/education";
 
 export function createServer() {
   const app = express();
@@ -52,6 +53,9 @@ export function createServer() {
 
   // Hotspots API
   app.use("/api/hotspots", hotspotsRouter);
+
+  // Educational Content API
+  app.use("/api/education", educationRouter);
 
   return app;
 }

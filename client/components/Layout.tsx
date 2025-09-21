@@ -20,7 +20,7 @@ export default function Layout() {
             className="flex items-center gap-2 font-extrabold text-xl"
           >
             <Droplets className="text-primary" />
-            <span>Smart Health Surveillance</span>
+            <span>Smart Water Surveillance</span>
           </Link>
           <nav className="hidden md:flex items-center gap-2">
             {navItems.map((item) => (
@@ -52,7 +52,7 @@ export default function Layout() {
       <footer className="mt-10 border-t bg-card/60">
         <div className="container mx-auto py-6 text-sm text-foreground/70 flex flex-col md:flex-row items-center justify-between gap-4">
           <p>
-            © {new Date().getFullYear()} Smart Health Surveillance & Early
+            © {new Date().getFullYear()} Smart Water Monitoring & Early
             Warning System
           </p>
           <p>Obsidian</p>
